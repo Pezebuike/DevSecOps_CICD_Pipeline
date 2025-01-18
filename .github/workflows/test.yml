@@ -1,0 +1,23 @@
+name: Test
+
+on:
+  workflow_call:
+    # inputs:
+    #   workflow_id:
+    #     - "Build"
+    #   action_id:
+    #     - "test"
+
+jobs:
+  test:
+    runs-on: java_build
+    # needs: Build # Ensure Sonar runs after Build
+    steps:
+        - name: Run Tests
+          run: mvn test
+
+        - name: Upload Test Results
+          uses: actions/upload-artifact@v3
+          with:
+            name: test-results
+            path: target/test-classes/TEST-*.xml
