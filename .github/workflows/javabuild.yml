@@ -47,9 +47,15 @@ jobs:
         uses: jfrog/setup-jfrog-cli@v3        
         with:
             version: latest
+      
+      - name: Configure JFrog CLI
         env:
             JF_URL: ${{ secrets.JFROG_URL }}
             JF_ACCESS_TOKEN: ${{ secrets.JFROG_TOKEN }}
+        run: |
+            jf c add --url=$JF_URL --access-token=$JF_ACCESS_TOKEN --interactive=false
+        
+            
 
       - name: Upload JAR to JFrog
         run: |
