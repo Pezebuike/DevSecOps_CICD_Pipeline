@@ -29,7 +29,7 @@ jobs:
             key: ${{ runner.os }}-maven-${{ hashFiles('**/pom.xml') }}
 
       - name: Build with Maven
-        run: mvn clean install -DskipTests=true -B -V
+        run: mvn clean install -DskipTests=true
 
       - name: Upload Build Artifact
         uses: actions/upload-artifact@v3
@@ -37,18 +37,18 @@ jobs:
          name: jar
          path: target/*.jar
 
-    #   - name: Configure jfrog CLI
-    #     token: ${{ secrets.JFROG_API_KEY }}
-    #     run: |
-    #       jfrog config add jfrog --artifactory-url=https://ezy.jfrog.io/artifactory --user=ezy --opikey=${{ secrets.JFROG_TOKEN }} --interactive=false
+      # - name: Configure jfrog CLI
+      #   env:
+      #     JFROG_API_KEY: ${{ secrets.JFROG_API_KEY }}
+      #   run: |
+      #     jfrog config add jfrog --artifactory-url=https://trial1u1cj3.jfrog.io --user=ezebuikemichael@gmail.com --opikey=${{ secrets.JFROG_API_KEY }} --interactive=false
 
       - name: CONFIGURE JFROG CLI
         uses: jfrog/setup-jfrog-cli@v3        
         with:
             version: latest
-
         env:
-            JF_URL: ${{ secrets.JFROG_URL }}
+            JF_URL: https://trial1u1cj3.jfrog.io
             JF_ACCESS_TOKEN: ${{ secrets.JFROG_TOKEN }}
 
       - name: Upload JAR to JFrog

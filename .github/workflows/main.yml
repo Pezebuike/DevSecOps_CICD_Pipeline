@@ -10,7 +10,7 @@ on:
 
 env:
         DOCKER_IMAGE: ezy1016/petapp:${{ github.sha }}
-        MAVEN_CLI_OPTS: "DskipTests=true -B -V"
+        MAVEN_CLI_OPTS: "DskipTests=true"
 
 jobs:
   Build:
