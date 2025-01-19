@@ -48,7 +48,7 @@ jobs:
           JFROG_URL: ${{ secrets.JFROG_URL }}
           JFROG_TOKEN: ${{ secrets.JFROG_TOKEN }}
         run: |
-          jf c add --url=$JFROG_URL --access-token=$JFROG_TOKEN --interactive=false
+          jf c add --url=${{secrets.JFROG_URL}} --access-token=${{secrets.JFROG_TOKEN}} --interactive=false
           jf c use default
 
       - name: Upload JAR to JFrog
