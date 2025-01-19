@@ -10,7 +10,7 @@ on:
 
 jobs:
     image_push:
-        runs-on: java_build
+        runs-on: ubuntu-latest
         env:
             DOCKER_IMAGE: pezebuike/petapp:${{ github.sha }}
 
