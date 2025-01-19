@@ -9,7 +9,7 @@ on:
     #     - "javabuild"
 
 jobs:
-  build:
+  build-and-upload:
     runs-on: java_build
     steps:
       - name: Checkout Repository
@@ -22,11 +22,11 @@ jobs:
           java-version: '17'
           cache: 'maven'
 
-      - name: Catch Maven Dependencies
+      - name: Cache Maven Dependencies
         uses: actions/cache@v4
         with:
-            path: ~/.m2/repository
-            key: ${{ runner.os }}-maven-${{ hashFiles('**/pom.xml') }}
+          path: ~/.m2/repository
+          key: ${{ runner.os }}-maven-${{ hashFiles('**/pom.xml') }}
 
       - name: Build with Maven
         run: mvn clean install -DskipTests=true
@@ -34,31 +34,26 @@ jobs:
       - name: Upload Build Artifact
         uses: actions/upload-artifact@v3
         with:
-         name: jar
-         path: target/*.jar
+          name: jar
+          path: target/*.jar
 
-      # - name: Configure jfrog CLI
-      #   env:
-      #     JFROG_API_KEY: ${{ secrets.JFROG_API_KEY }}
-      #   run: |
-      #     jfrog config add jfrog --artifactory-url=https://trial1u1cj3.jfrog.io --user=ezebuikemichael@gmail.com --opikey=${{ secrets.JFROG_API_KEY }} --interactive=false
-
-      - name: Setup JFROG CLI
+      - name: Setup JFrog CLI
         uses: jfrog/setup-jfrog-cli@v3        
         with:
-            version: latest
+          version: latest
       
       - name: Configure JFrog CLI
         env:
-            JF_URL: ${{ secrets.JFROG_URL }}
-            JF_ACCESS_TOKEN: ${{ secrets.JFROG_TOKEN }}
+          CI: true # Suppress interactive prompts
+          JFROG_URL: ${{ secrets.JFROG_URL }}
+          JFROG_TOKEN: ${{ secrets.JFROG_TOKEN }}
         run: |
-            jf c add --url=${{secrets.JFROG_URL}} --access-token=${{secrets.JROG_TOKEN}} --interactive=false
-        
-            
+          jf c add --url=$JFROG_URL --access-token=$JFROG_TOKEN --interactive=false
+          jf c use default
 
       - name: Upload JAR to JFrog
+        env:
+          CI: true # Suppress interactive prompts
         run: |
-            sudo jf rt u "target/*.jar" "petjfrog-repo/"
-           
+          jf rt u "target/*.jar" "petjfrog-repo/"
             
