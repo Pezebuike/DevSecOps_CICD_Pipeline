@@ -1,4 +1,4 @@
-name: Build
+name: Build and Upload to JFrog
 
 on:
   workflow_call:
@@ -9,7 +9,7 @@ permissions:
 
 jobs:
   build-and-upload:
-    runs-on: java_build
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
@@ -20,12 +20,6 @@ jobs:
           distribution: 'adopt'
           java-version: '17'
           cache: 'maven'
-
-      - name: Cache Maven Dependencies
-        uses: actions/cache@v4
-        with:
-          path: ~/.m2/repository
-          key: ${{ runner.os }}-maven-${{ hashFiles('**/pom.xml') }}
 
       - name: Build with Maven
         run: mvn clean install -DskipTests=true
@@ -42,26 +36,31 @@ jobs:
           oidc-provider-name: github-jfrog
           oidc-audience: my-aud
           version: 2.73.0
-          disable-job-summary: false
-          disable-auto-build-publish: false
         env:
           JAVA_HOME: /home/ubuntu/actions-runner/_work/_tool/Java_Adopt_jdk/17.0.13-11/x64
           JAVA_HOME_17_X64: /home/ubuntu/actions-runner/_work/_tool/Java_Adopt_jdk/17.0.13-11/x64
           JF_URL: ${{ secrets.JFROG_URL }}
-          
+
       - name: Configure JFrog CLI
-        env:
-          CI: true # Suppress interactive prompts
-          JF_URL: ${{ secrets.JFROG_URL }}
-          JFROG_TOKEN: ${{ secrets.JFROG_TOKEN }}
         run: |
           jf c add --url=${{ secrets.JFROG_URL }} --access-token=${{ secrets.JFROG_TOKEN }} --interactive=false
+        env:
+          CI: true
+          JFROG_URL: ${{ secrets.JFROG_URL }}
+          JFROG_TOKEN: ${{ secrets.JFROG_TOKEN }}
 
       - name: Upload JAR to JFrog
-        env:
-          CI: true # Suppress interactive prompts
         run: |
           jf rt u "target/*.jar" "petjfrog-repo/"
+        env:
+          CI: true
+
+      - name: Enable Debug Logs (Optional for Troubleshooting)
+        if: ${{ failure() }}
+        run: |
+          export JFROG_CLI_LOG_LEVEL=DEBUG
+          echo "Debug logs enabled"
+
 
 # name: Build
 
