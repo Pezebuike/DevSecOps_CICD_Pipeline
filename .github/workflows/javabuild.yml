@@ -2,6 +2,8 @@ name: Build
 
 on:
   workflow_call:
+permissions: 
+  id-token: write
     # inputs:
     #   workflow_id:
     #     - "Build"
@@ -38,17 +40,21 @@ jobs:
           path: target/*.jar
 
       - name: Setup JFrog CLI
-        uses: jfrog/setup-jfrog-cli@v3        
-        with:
-          version: latest
-      
-      - name: Configure JFrog CLI
+        uses: jfrog/setup-jfrog-cli@v4
         env:
-          CI: true # Suppress interactive prompts
-          JFROG_URL: ${{ secrets.JFROG_URL }}
-          JFROG_TOKEN: ${{ secrets.JFROG_TOKEN }}
-        run: |
-          jf c add --url=${{secrets.JFROG_URL}} --access-token=${{secrets.JFROG_TOKEN}} --interactive=false
+          JFROG_url: ${{ secrets.JFROG_URL }}        
+        with:
+          oidc-provider-name: github-jfrog
+          oidc-audience: my-aud
+
+      
+      # - name: Configure JFrog CLI
+      #   env:
+      #     CI: true # Suppress interactive prompts
+      #     JFROG_URL: ${{ secrets.JFROG_URL }}
+      #     JFROG_TOKEN: ${{ secrets.JFROG_TOKEN }}
+      #   run: |
+      #     jf c add --url=${{secrets.JFROG_URL}} --access-token=${{secrets.JFROG_TOKEN}} --interactive=false
          
 
       - name: Upload JAR to JFrog
