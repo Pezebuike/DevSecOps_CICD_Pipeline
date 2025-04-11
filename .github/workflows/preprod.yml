@@ -2,6 +2,8 @@ name: CI Pipeline
 
 on:
   pull_request:
+    branches:
+      - design_master
     types:
       - opened
   # push:
