@@ -12,12 +12,14 @@ jobs:
     image_push:
         runs-on: java_build
         env:
-            DOCKER_IMAGE: pezebuike/petapp:${{ github.sha }}
-
+            USER: pezebuike # docker registry user name 
+            DOCKER_IMAGE: petapp:${{ github.sha }} # This will be combined with the container registry user name to generate a tag for the image
+            # TAG: pezebuike/petapp:${{github.sha}} 
+            REGISTRY: ghcr.io
         steps:
             - name: Build Docker Image
               run: |
-                sudo docker build -t ${{ env.DOCKER_IMAGE }} .
+                sudo docker build -t ${{ env.USER }}/${{ env.DOCKER_IMAGE }} .
                 sudo docker push ${{ env.DOCKER_IMAGE }} > docker_image.tar
 
             - name: Upload Docker Image Artifact
@@ -27,7 +29,7 @@ jobs:
                 path: docker_image.tar
 
             - name: Log into GitHub Container Registry
-              run: echo "${{ secrets.DOCKER_PASSWORD }}" | docker login ghcr.io -u "${{ secrets.DOCKER_USERNAME }}" --password-stdin
+              run: echo "${{ secrets.DOCKER_PASSWORD }}" | docker login ${{env.REGISTRY}} -u "${{ secrets.DOCKER_USERNAME }}" --password-stdin
 
             - name: pull docker image
               run: docker pull ${{ env.DOCKER_IMAGE }}
