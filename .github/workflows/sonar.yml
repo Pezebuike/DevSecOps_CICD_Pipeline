@@ -20,3 +20,4 @@ jobs:
                 -Dsonar.organization=${{ secrets.SONAR_ORGANIZATION }}
                 -Dsonar.host.url=${{ secrets.SONAR_URL }}
                 -Dsonar.login=${{ secrets.SONAR_TOKEN }}
+                -Dsonar.qaulitygate.wait=true
