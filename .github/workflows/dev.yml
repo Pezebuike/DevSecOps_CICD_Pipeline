@@ -46,6 +46,13 @@ jobs:
     secrets: inherit
     if: always() && (needs.build.result == 'success')
 
+  opa-conftest:
+    name: OPA Conftest
+    uses: ./.github/workflows/opa-conftest.yml
+    needs: build
+    secrets: inherit
+    if: always() && (needs.build.result == 'success')
+
   # OWASP Dependency Check
   owaspdepcheck:
     name: OWASP Dependency Check

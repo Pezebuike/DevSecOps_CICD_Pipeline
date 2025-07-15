@@ -1,0 +1,60 @@
+name: Docker Security Policy Testing
+
+on:
+    workflow_call:
+        # inputs:
+        #   workflow_id:
+        #     - "Docker Security Scan"
+        #   action_id:
+        #     - "docker-security-scan"
+
+jobs:
+  docker-security-scan:
+    runs-on: java_build
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    # download the Conftest and install binary code
+    - name: Install Conftest
+      run: |
+        wget https://github.com/open-policy-agent/conftest/releases/latest/download/conftest_Linux_x86_64.tar.gz
+        tar xzf conftest_Linux_x86_64.tar.gz
+        sudo mv conftest /usr/local/bin
+        conftest --version
+       
+    # Execute security policy validation against Dockerfile    
+    - name: Run Docker Security Policy Check
+      run: |
+        conftest test --policy opa-docker-security.rego --namespace dockerfile Dockerfile
+      
+    # Generate JSON report of policy violations and Upload the results of the policy check    
+    - name: Upload policy results
+      if: always()
+      run: |
+        conftest test --policy opa-docker-security.rego --namespace dockerfile --output json Dockerfile > docker-policy-results.json || true
+     
+    # Upload the results as an artifact for further analysis    
+    - name: Upload test results
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: docker-security-results
+        path: docker-policy-results.json
+
+        
+
+     #   Using the official Conftest action
+#   conftest-action:
+#     runs-on: java_build
+    
+#     steps:
+#     - name: Checkout code
+#       uses: actions/checkout@v4
+      
+#     - name: Run Docker Security Policy
+#       uses: instrumenta/conftest-action@master
+#       with:
+#         files: Dockerfile
+#         policy: opa-docker-security.rego
