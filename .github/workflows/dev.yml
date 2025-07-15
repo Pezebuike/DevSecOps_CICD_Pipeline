@@ -2,54 +2,230 @@ name: CI Pipeline
 
 on:
   push:
-    # branches:
-    #   - main  
-  # pull_request:
-  #   branches:
-  #     - main
+    branches:
+      - feature
+      - main
+      - develop
+  pull_request:
+    branches:
+      - DEVELOPMENT
+      - main
+    types:
+      - opened
+      - reopened
+      - synchronize
 
 env:
-        DOCKER_IMAGE: petapp:${{ github.sha }} # This will be combined with the container registry user name to generate a tag for the image
-        # TAG: pezebuike/petapp:${{github.sha}} 
-        MAVEN_CLI_OPTS: "DskipTests=true"
-        PAT: ${{secrets.GITHUB_TOKEN}}
-        USER: pezebuike # docker registry user name 
-        REGISTRY: ghcr.io
+  DOCKER_IMAGE: petapp:${{ github.sha }}
+  MAVEN_CLI_OPTS: "-DskipTests=true"
+  PAT: ${{ secrets.GITHUB_TOKEN }}
+  USER: pezebuike
+  REGISTRY: ghcr.io
+  BUILD_NUMBER: ${{ github.run_number }}
+  COMMIT_SHA: ${{ github.sha }}
+  BRANCH_NAME: ${{ github.ref_name }}
 
 permissions:
   id-token: write
   contents: read
+  packages: write
+  security-events: write
+  actions: read
 
 jobs:
-  
-  Build:
-    uses: ./.github/workflows/javabuild.yml
-    secrets: inherit 
-    
-  owaspdepcheck:
-    uses: ./.github/workflows/owaspdepcheck.yml
-    needs: Build
+  build:
+    name: Build Application
+    uses: ./.github/workflows/setup_jdk.yml
     secrets: inherit
 
-  trivy:
-    uses: ./.github/workflows/trivy.yml 
-    needs: Build
-    secrets: inherit
-
+  # SAST/SCA (Static Application Security Testing / Software Composition Analysis)
   sonar:
-    uses: ./.github/workflows/sonar.yml 
-    needs: Build
+    name: SonarQube Analysis
+    uses: ./.github/workflows/sonar.yml
+    needs: build
     secrets: inherit
-    
-  test:
-    uses: ./.github/workflows/test.yml
-    needs: sonar
-    secrets: inherit
+    if: always() && (needs.build.result == 'success')
 
-  imagepush:
-    uses: ./.github/workflows/imagepush.yml
-    needs: test
+  # OWASP Dependency Check
+  owaspdepcheck:
+    name: OWASP Dependency Check
+    uses: ./.github/workflows/owaspdepcheck.yml
+    needs: build
     secrets: inherit
+    if: always() && (needs.build.result == 'success')
+
+  # Trivy vulnerability scanner
+  trivy:
+    name: Trivy Vulnerability Scan
+    uses: ./.github/workflows/trivy.yml
+    needs: build
+    secrets: inherit
+    if: always() && (needs.build.result == 'success')
+
+  # Only run comprehensive tests on main branch or PRs to main/DEVELOPMENT
+  test:
+    name: Run Tests
+    uses: ./.github/workflows/test.yml
+    needs: [sonar]
+    secrets: inherit
+    if: |
+      always() && 
+      (needs.sonar.result == 'success') &&
+      (
+        github.ref == 'refs/heads/main' || 
+        github.base_ref == 'main' || 
+        github.base_ref == 'DEVELOPMENT' ||
+        contains(github.event.pull_request.labels.*.name, 'run-full-tests')
+      )
+
+  # Maven packaging
+  mvn:
+    name: Maven Package
+    uses: ./.github/workflows/mvn.yml
+    needs: build
+    secrets: inherit
+    if: always() && (needs.build.result == 'success')
+
+  # JFrog artifact upload
+  jfrog:
+    name: JFrog Upload
+    uses: ./.github/workflows/jfrog.yml
+    needs: [build, mvn]
+    secrets: inherit
+    if: |
+      always() && 
+      (needs.build.result == 'success') &&
+      (needs.mvn.result == 'success') &&
+      (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')
+
+  # Only push images on successful tests
+  imagepush:
+    name: Push Docker Image
+    uses: ./.github/workflows/imagepush.yml
+    needs: [test, owaspdepcheck, trivy]
+    secrets: inherit
+    if: |
+      always() && 
+      (
+        (needs.test.result == 'success') ||
+        (needs.test.result == 'skipped' && github.ref != 'refs/heads/main' && github.base_ref != 'main')
+      ) &&
+      (needs.owaspdepcheck.result == 'success' || needs.owaspdepcheck.result == 'skipped') &&
+      (needs.trivy.result == 'success' || needs.trivy.result == 'skipped')
+
+  # Summary job
+  summary:
+    name: Pipeline Summary
+    needs: [build, sonar, test, imagepush, jfrog, owaspdepcheck, trivy, mvn]
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: Pipeline Results
+        run: |
+          echo "## 📊 CI Pipeline Summary" >> $GITHUB_STEP_SUMMARY
+          echo "| Job | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|-----|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Build | ${{ needs.build.result || 'skipped' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| SonarQube | ${{ needs.sonar.result || 'skipped' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Tests | ${{ needs.test.result || 'skipped' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| OWASP Check | ${{ needs.owaspdepcheck.result || 'skipped' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Trivy Scan | ${{ needs.trivy.result || 'skipped' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Maven Package | ${{ needs.mvn.result || 'skipped' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Image Push | ${{ needs.imagepush.result || 'skipped' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| JFrog Upload | ${{ needs.jfrog.result || 'skipped' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 🔍 Build Details" >> $GITHUB_STEP_SUMMARY
+          echo "- **Branch:** ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Commit:** ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Run Number:** ${{ github.run_number }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Trigger:** ${{ github.event_name }}" >> $GITHUB_STEP_SUMMARY
+
+      - name: Check for Failures
+        if: |
+          needs.build.result == 'failure' || 
+          needs.sonar.result == 'failure' ||
+          needs.test.result == 'failure' ||
+          needs.owaspdepcheck.result == 'failure' ||
+          needs.trivy.result == 'failure'
+        run: |
+          echo "❌ Pipeline failed! Check the individual job logs for details."
+          exit 1
+
+
+# name: CI Pipeline
+
+# on:
+#   push:
+#     branches:
+#       - feature  
+#   pull_request:
+#     branches:
+#       - DEVELOPMENT
+#     types:
+#       - opened
+#       - reopened
+
+# env:
+#         DOCKER_IMAGE: petapp:${{ github.sha }} # This will be combined with the container registry user name to generate a tag for the image
+#         # TAG: pezebuike/petapp:${{github.sha}} 
+#         MAVEN_CLI_OPTS: "DskipTests=true"
+#         PAT: ${{secrets.GITHUB_TOKEN}}
+#         USER: pezebuike # docker registry user name 
+#         REGISTRY: ghcr.io
+
+# permissions:
+#   id-token: write
+#   contents: read
+
+# jobs:
+  
+#   Build:
+#     uses: ./.github/workflows/javabuild.yml
+#     secrets: inherit 
+  
+#   # SAST/SCA(Static Application Security Testing / Software Composition Analysis)
+#   sonar:
+#     uses: ./.github/workflows/sonar.yml 
+#     needs: Build
+#     secrets: inherit
+  
+#   test:
+#     uses: ./.github/workflows/test.yml
+#     needs: sonar
+#     secrets: inherit
+
+#   mvn:
+#     uses: ./.github/workflows/mvn.yml
+#     needs: Build
+#     secrets: inherit
+
+#   imagepush:
+#     uses: ./.github/workflows/imagepush.yml
+#     needs: test
+#     secrets: inherit
+
+#   jfrog:
+#     uses: ./.github/workflows/jfrog.yml
+#     needs: Build
+#     secrets: inherit
+
+#   # DAST(Dynamic Application Security Testing)
+#   owaspdepcheck:
+#     uses: ./.github/workflows/owaspdepcheck.yml
+#     needs: Build
+#     secrets: inherit
+  
+#   # Vulnerability scanner forContainer Security and other artifacts
+#   trivy:
+#     uses: ./.github/workflows/trivy.yml 
+#     needs: Build
+#     secrets: inherit
+
+  
+    
+  
+
+  
 
   # deploy:
   #   uses: ./.github/workflows/deploy.yml

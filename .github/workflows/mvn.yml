@@ -1,0 +1,72 @@
+name: Maven Build
+
+on:
+  workflow_call:
+    inputs:
+      maven-opts:
+        description: 'Maven CLI options'
+        required: false
+        type: string
+        default: ''
+      skip-tests:
+        description: 'Skip tests during build'
+        required: false
+        type: boolean
+        default: false
+    secrets:
+      SONAR_TOKEN:
+        required: true
+      SONAR_HOST_URL:
+        required: true
+
+jobs:
+  mvnbuild:
+    name: Maven Build and Package
+    runs-on: java_build
+    steps:
+      - name: Cache Maven Dependencies
+        uses: actions/cache@v3
+        with:
+          path: ~/.m2/repository
+          key: ${{ runner.os }}-maven-${{ hashFiles('**/pom.xml') }}
+          restore-keys: |
+            ${{ runner.os }}-maven-
+
+      - name: Run Tests
+        if: ${{ !inputs.skip-tests }}
+        run: mvn clean verify ${{ inputs.maven-opts }}
+
+      - name: Build with Maven
+        run: |
+          if [ "${{ inputs.skip-tests }}" == "true" ]; then
+            mvn clean install -DskipTests=true ${{ inputs.maven-opts }}
+          else
+            mvn clean install ${{ inputs.maven-opts }}
+          fi
+
+      - name: SonarQube Scan
+        uses: sonarsource/sonarqube-scan-action@master
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+
+      - name: SonarQube Quality Gate check
+        uses: sonarsource/sonarqube-quality-gate-action@master
+        with:
+          pollingTimeoutSec: 600
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+
+      - name: Build Summary
+        run: |
+          echo "## 📦 Maven Build Summary" >> $GITHUB_STEP_SUMMARY
+          echo "- **Build Status:** ✅ Success" >> $GITHUB_STEP_SUMMARY
+          echo "- **Java Version:** $(java -version 2>&1 | head -n 1)" >> $GITHUB_STEP_SUMMARY
+          echo "- **Maven Version:** $(mvn -version | head -n 1)" >> $GITHUB_STEP_SUMMARY
+          echo "- **Tests:** ${{ inputs.skip-tests == true && 'Skipped' || 'Executed' }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Build Artifacts:** Generated (handled by separate workflow)" >> $GITHUB_STEP_SUMMARY
+
+
+
+

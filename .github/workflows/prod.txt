@@ -1,536 +1,67 @@
-# name: CI Pipeline
-
-# on:
-#   push:
-#     branches:
-#       - main  
-#   # pull_request:
-#   #   branches:
-#   #     - main
-
-# env:
-#         DOCKER_IMAGE: ezy1016/petapp:${{ github.sha }}
-#         MAVEN_CLI_OPTS: "DskipTests=true"
-
-# jobs:
-#   Build:
-#     uses: ./.github/workflows/javabuild.yml
-#     secrets: inherit  
-
-#   sonar:
-#     uses: ./.github/workflows/sonar.yml 
-#     needs: Build
-#     secrets: inherit
-    
-#   test:
-#     uses: ./.github/workflows/test.yml
-#     needs: sonar
-#     secrets: inherit
-
-#   imagepush:
-#     uses: ./.github/workflows/imagepush.yml
-#     needs: test
-#     secrets: inherit
-
-#   # deploy:
-#   #   uses: ./.github/workflows/deploy.yml
-#   #   needs: imagepush
-#   #   secrets: inherit
-
-Cloude Code:
-
-name: AWS DevSecOps Pipeline
+name: CI Pipeline
 
 on:
-  push:
-    branches: [ main, develop ]
   pull_request:
-    branches: [ main, develop ]
-  schedule:
-    - cron: '0 0 * * 0'  # Weekly scan on Sundays
+    branches:
+      - design_master
+    types:
+      - closed
+  # push:
+  #   branches:
+  #     - main  
+  # pull_request:
+  #   branches:
+  #     - main
 
 env:
-  JAVA_VERSION: '17'
-  AWS_REGION: 'us-east-1'
-  ECR_REPOSITORY: ${{ github.repository }}
-  SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
-  SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-  JFROG_URL: ${{ secrets.JFROG_URL }}
-  JFROG_USER: ${{ secrets.JFROG_USER }}
-  JFROG_TOKEN: ${{ secrets.JFROG_TOKEN }}
+        DOCKER_IMAGE: petapp:${{ github.sha }} # This will be combined with the container registry user name to generate a tag for the image
+        # TAG: pezebuike/petapp:${{github.sha}} 
+        MAVEN_CLI_OPTS: "DskipTests=true"
+        PAT: ${{secrets.GITHUB_TOKEN}}
+        USER: pezebuike # docker registry user name 
+        REGISTRY: ghcr.io
+
+permissions:
+  id-token: write
+  contents: read
 
 jobs:
-  # STAGE 1: SOURCE CODE ANALYSIS
-  sast-code-scan:
-    name: 1A - Static Code Analysis (SAST)
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v3
-        with:
-          fetch-depth: 0  # Shallow clones disabled for better SonarCloud analysis
-      
-      - name: Set up JDK
-        uses: actions/setup-java@v3
-        with:
-          java-version: ${{ env.JAVA_VERSION }}
-          distribution: 'temurin'
-          cache: maven
-      
-      - name: SonarCloud Scan
-        run: mvn -B verify sonar:sonar -Dsonar.projectKey=${{ github.repository_owner }}_${{ github.event.repository.name }} -Dsonar.organization=${{ github.repository_owner }} -Dsonar.host.url=https://sonarcloud.io
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  
+  Build:
+    uses: ./.github/workflows/javabuild.yml
+    secrets: inherit 
+    
+  owaspdepcheck:
+    uses: ./.github/workflows/owaspdepcheck.yml
+    needs: Build
+    secrets: inherit
 
-  sca-dependency-scan:
-    name: 1B - Software Composition Analysis
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v3
-      
-      - name: Set up JDK
-        uses: actions/setup-java@v3
-        with:
-          java-version: ${{ env.JAVA_VERSION }}
-          distribution: 'temurin'
-          cache: maven
-      
-      - name: Snyk Open Source Scan
-        uses: snyk/actions/maven@master
-        with:
-          command: test
-      
-      - name: Snyk Code Scan
-        uses: snyk/actions/maven@master
-        with:
-          command: code test
+  trivy:
+    uses: ./.github/workflows/trivy.yml 
+    needs: Build
+    secrets: inherit
 
-  # STAGE 2: BUILD AND PACKAGE
-  build-application:
-    name: 2A - Build Application
-    needs: [sast-code-scan, sca-dependency-scan]
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v3
-      
-      - name: Set up JDK
-        uses: actions/setup-java@v3
-        with:
-          java-version: ${{ env.JAVA_VERSION }}
-          distribution: 'temurin'
-          cache: maven
-      
-      - name: Maven Build
-        run: mvn -B package -DskipTests
-      
-      - name: Upload Maven artifacts
-        uses: actions/upload-artifact@v3
-        with:
-          name: maven-artifacts
-          path: target/*.jar
+  sonar:
+    uses: ./.github/workflows/sonar.yml 
+    needs: Build
+    secrets: inherit
+    
+  test:
+    uses: ./.github/workflows/test.yml
+    needs: sonar
+    secrets: inherit
 
-  jfrog-binary-scan:
-    name: 2B - Binary Artifact Scanning
-    needs: [build-application]
-    runs-on: ubuntu-latest
-    steps:
-      - name: Download Maven artifacts
-        uses: actions/download-artifact@v3
-        with:
-          name: maven-artifacts
-          path: target/
-      
-      - name: JFrog Xray Scan
-        uses: jfrog/setup-jfrog-cli@v3
-        env:
-          JF_URL: ${{ env.JFROG_URL }}
-          JF_USER: ${{ env.JFROG_USER }}
-          JF_PASSWORD: ${{ env.JFROG_TOKEN }}
-        with:
-          version: latest
-      - run: |
-          jfrog rt upload "target/*.jar" maven-repo/
-          jfrog rt build-scan --fail=false
+  imagepush:
+    uses: ./.github/workflows/imagepush.yml
+    needs: test
+    secrets: inherit
 
-  # STAGE 3: CONTAINER BUILD AND SCAN
-  container-security:
-    name: 3 - Container Image Security
-    needs: [jfrog-binary-scan]
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v3
-      
-      - name: Download Maven artifacts
-        uses: actions/download-artifact@v3
-        with:
-          name: maven-artifacts
-          path: target/
-      
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v1
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ env.AWS_REGION }}
-      
-      - name: Login to Amazon ECR
-        id: login-ecr
-        uses: aws-actions/amazon-ecr-login@v1
-      
-      - name: Build, tag, and push image to Amazon ECR
-        id: build-image
-        env:
-          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-          IMAGE_TAG: ${{ github.sha }}
-        run: |
-          # Create repository if it doesn't exist
-          aws ecr describe-repositories --repository-names ${{ env.ECR_REPOSITORY }} || aws ecr create-repository --repository-name ${{ env.ECR_REPOSITORY }}
-          
-          # Build and tag the image but don't push yet
-          docker build -t $ECR_REGISTRY/${{ env.ECR_REPOSITORY }}:$IMAGE_TAG .
-          echo "::set-output name=image::$ECR_REGISTRY/${{ env.ECR_REPOSITORY }}:$IMAGE_TAG"
-      
-      - name: Trivy vulnerability scan
-        uses: aquasecurity/trivy-action@master
-        with:
-          image-ref: ${{ steps.build-image.outputs.image }}
-          format: 'sarif'
-          output: 'trivy-results.sarif'
-          severity: 'CRITICAL,HIGH'
-          exit-code: '0'  # Don't fail the pipeline
-          ignore-unfixed: true
-      
-      - name: Upload Trivy scan results to GitHub Security tab
-        uses: github/codeql-action/upload-sarif@v2
-        if: always()
-        with:
-          sarif_file: 'trivy-results.sarif'
-      
-      - name: Snyk Container Scan
-        uses: snyk/actions/docker@master
-        with:
-          image: ${{ steps.build-image.outputs.image }}
-          args: --file=Dockerfile
-      
-      - name: Push Docker image to ECR (if on main or develop)
-        if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop'
-        env:
-          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-          IMAGE_TAG: ${{ github.sha }}
-        run: |
-          # Add environment tag
-          if [ "${{ github.ref }}" = "refs/heads/main" ]; then
-            ENV_TAG="production"
-          else
-            ENV_TAG="staging"
-          fi
-          
-          # Tag and push
-          docker tag $ECR_REGISTRY/${{ env.ECR_REPOSITORY }}:$IMAGE_TAG $ECR_REGISTRY/${{ env.ECR_REPOSITORY }}:$ENV_TAG
-          docker push $ECR_REGISTRY/${{ env.ECR_REPOSITORY }}:$IMAGE_TAG
-          docker push $ECR_REGISTRY/${{ env.ECR_REPOSITORY }}:$ENV_TAG
-          
-          echo "::set-output name=env-tag::$ENV_TAG"
+  # deploy:
+  #   uses: ./.github/workflows/deploy.yml
+  #   needs: imagepush
+  #   secrets: inherit
 
-  # STAGE 4: INFRASTRUCTURE SECURITY
-  infrastructure-security:
-    name: 4 - CloudFormation & Terraform Security
-    needs: [container-security]
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v3
-      
-      - name: Snyk IaC Scan - CloudFormation
-        uses: snyk/actions/iac@master
-        with:
-          args: --severity-threshold=high cloudformation/
-      
-      - name: Snyk IaC Scan - Terraform
-        uses: snyk/actions/iac@master
-        with:
-          args: --severity-threshold=high terraform/
-      
-      - name: cfn-nag CloudFormation Security Scan
-        uses: stelligent/cfn_nag@master
-        with:
-          input_path: cloudformation/
-          extra_args: --output-format json --output-path cfn-nag-results.json
-      
-      - name: Upload CFN Nag Results
-        uses: actions/upload-artifact@v3
-        with:
-          name: cloudformation-security-scan
-          path: cfn-nag-results.json
 
-  # STAGE 5: TEST ENVIRONMENT DEPLOYMENT AND TESTING
-  deploy-test:
-    name: 5A - Deploy to AWS Staging Environment
-    if: github.ref == 'refs/heads/develop'
-    needs: [infrastructure-security]
-    runs-on: ubuntu-latest
-    environment: staging
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v3
-      
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v1
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ env.AWS_REGION }}
-      
-      - name: Login to Amazon ECR
-        id: login-ecr
-        uses: aws-actions/amazon-ecr-login@v1
-      
-      - name: Deploy to ECS (Staging Environment)
-        run: |
-          aws ecs update-service --cluster staging-cluster --service app-service --force-new-deployment
-          
-          # Wait for deployment to complete
-          aws ecs wait services-stable --cluster staging-cluster --services app-service
-          
-          # Get the ALB DNS name for DAST testing
-          ALB_DNS=$(aws cloudformation describe-stacks --stack-name staging-stack --query "Stacks[0].Outputs[?OutputKey=='AlbDnsName'].OutputValue" --output text)
-          echo "TEST_APP_URL=http://$ALB_DNS" >> $GITHUB_ENV
-
-  dast-testing:
-    name: 5B - Dynamic Application Security Testing
-    needs: [deploy-test]
-    if: github.ref == 'refs/heads/develop'
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v3
-      
-      - name: Wait for application to be fully available
-        run: |
-          # Allow some time for the application to fully initialize
-          sleep 60
-      
-      - name: OWASP ZAP Full Scan
-        uses: zaproxy/action-full-scan@v0.7.0
-        with:
-          target: ${{ env.TEST_APP_URL }}
-          rules_file_name: '.zap/rules.tsv'
-          cmd_options: '-a'
-          allow_issue_writing: false
-      
-      - name: Upload ZAP Scan Results
-        uses: actions/upload-artifact@v3
-        with:
-          name: zap-scan-results
-          path: zap-report/
-
-  # STAGE 6: AWS SECURITY CHECKS
-  aws-security:
-    name: 6 - AWS Security Checks
-    if: github.ref == 'refs/heads/main'
-    needs: [infrastructure-security]
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v3
-      
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v1
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ env.AWS_REGION }}
-      
-      - name: Install AWS CLI
-        run: |
-          pip install awscli
-      
-      - name: Install prowler for AWS security assessment
-        run: |
-          pip install prowler
-      
-      - name: Run Prowler for AWS security assessment
-        run: |
-          mkdir -p prowler-output
-          prowler -c eks -M csv -F prowler-output
-          prowler -c ec2 -M csv -F prowler-output
-          prowler -c iam -M csv -F prowler-output
-          prowler -c cloudtrail -M csv -F prowler-output
-      
-      - name: Run trivy-operator security scan on EKS
-        run: |
-          # Install kubectl
-          curl -LO "https://dl.k8s.io/release/v1.24.0/bin/linux/amd64/kubectl"
-          chmod +x kubectl
-          sudo mv kubectl /usr/local/bin/
-          
-          # Configure kubectl
-          aws eks update-kubeconfig --name production-cluster --region ${{ env.AWS_REGION }}
-          
-          # Install Trivy Operator using Helm
-          helm repo add aqua https://aquasecurity.github.io/helm-charts/
-          helm repo update
-          helm upgrade --install trivy-operator aqua/trivy-operator \
-            --namespace trivy-system \
-            --create-namespace
-          
-          # Run vulnerability scans
-          kubectl wait --for=condition=available --timeout=600s deployment/trivy-operator -n trivy-system
-          kubectl apply -f .github/workflows/trivy-vuln-scan.yaml
-          
-          # Wait for scan to complete
-          sleep 60
-          
-          # Get scan results
-          kubectl get vulnerabilityreports -A -o yaml > trivy-vuln-results.yaml
-      
-      - name: Upload AWS Security Reports
-        uses: actions/upload-artifact@v3
-        with:
-          name: aws-security-reports
-          path: |
-            prowler-output/
-            trivy-vuln-results.yaml
-
-  # STAGE 7: PRODUCTION DEPLOYMENT WITH FALCO
-  deploy-production:
-    name: 7A - Production Deployment (Blue-Green on ECS)
-    if: github.ref == 'refs/heads/main'
-    needs: [aws-security]
-    runs-on: ubuntu-latest
-    environment: production
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v3
-      
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v1
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ env.AWS_REGION }}
-      
-      - name: Login to Amazon ECR
-        id: login-ecr
-        uses: aws-actions/amazon-ecr-login@v1
-      
-      - name: Deploy to ECS with Blue-Green strategy
-        run: |
-          # Determine the current active deployment
-          CURRENT_TASK_DEF=$(aws ecs describe-services --cluster production-cluster --services app-service --query "services[0].taskDefinition" --output text)
-          
-          # Create new task definition (green)
-          aws ecs register-task-definition --cli-input-json file://ecs/task-definition.json
-          NEW_TASK_DEF=$(aws ecs describe-task-definition --task-definition app --query "taskDefinition.taskDefinitionArn" --output text)
-          
-          # Update the service with the new task definition
-          aws ecs update-service --cluster production-cluster --service app-service --task-definition $NEW_TASK_DEF
-          
-          # Wait for deployment to complete
-          aws ecs wait services-stable --cluster production-cluster --services app-service
-          
-          # If everything is good, we don't need to rollback
-          # If there's an issue, we could revert to the previous task definition
-          # aws ecs update-service --cluster production-cluster --service app-service --task-definition $CURRENT_TASK_DEF
-
-  runtime-security:
-    name: 7B - Runtime Security with Falco on EKS
-    if: github.ref == 'refs/heads/main'
-    needs: [deploy-production]
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v3
-      
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v1
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ env.AWS_REGION }}
-      
-      - name: Configure kubectl
-        run: |
-          aws eks update-kubeconfig --name production-cluster --region ${{ env.AWS_REGION }}
-      
-      - name: Deploy Falco
-        run: |
-          # Install Falco using Helm
-          helm repo add falcosecurity https://falcosecurity.github.io/charts
-          helm repo update
-          helm upgrade --install falco falcosecurity/falco \
-            --namespace falco \
-            --create-namespace \
-            --set driver.kind=ebpf \
-            --set tty=true \
-            --set falcosidekick.enabled=true \
-            --set falcosidekick.slack.webhookurl=${{ secrets.SLACK_WEBHOOK_URL }} \
-            --set falcosidekick.aws.lambdaFunction.enabled=true \
-            --set falcosidekick.aws.lambdaFunction.functionName=falco-response \
-            --set falcosidekick.aws.region=${{ env.AWS_REGION }}
-      
-      - name: Verify Falco Installation
-        run: |
-          kubectl get pods -n falco
-          kubectl logs -n falco -l app.kubernetes.io/name=falco --tail=20
-      
-      - name: Apply Falco Custom Rules
-        run: |
-          kubectl create configmap -n falco falco-custom-rules --from-file=./security/falco-rules/custom-rules.yaml || true
-          kubectl patch deployment -n falco falco -p '{"spec":{"template":{"spec":{"volumes":[{"name":"custom-rules","configMap":{"name":"falco-custom-rules"}}]}}}}'
-
-  # STAGE 8: POST-DEPLOYMENT VERIFICATION
-  security-monitoring:
-    name: 8 - AWS Security Monitoring Setup
-    if: github.ref == 'refs/heads/main'
-    needs: [runtime-security]
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v3
-      
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v1
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ env.AWS_REGION }}
-      
-      - name: Setup Security Monitoring with AWS Security Hub
-        run: |
-          # Enable AWS Security Hub if not already enabled
-          aws securityhub describe-hub || aws securityhub enable-security-hub
-          
-          # Enable security standards
-          aws securityhub batch-enable-standards --standards-subscription-requests '[{"StandardsArn":"arn:aws:securityhub:'"${{ env.AWS_REGION }}"':standards/aws-foundational-security-best-practices/v/1.0.0"}]'
-          aws securityhub batch-enable-standards --standards-subscription-requests '[{"StandardsArn":"arn:aws:securityhub:'"${{ env.AWS_REGION }}"':standards/cis-aws-foundations-benchmark/v/1.2.0"}]'
-      
-      - name: Configure AWS GuardDuty
-        run: |
-          # Enable GuardDuty if not already enabled
-          aws guardduty list-detectors || aws guardduty create-detector --enable
-      
-      - name: Setup AWS Config for Compliance Monitoring
-        run: |
-          # Enable AWS Config if needed
-          aws configservice describe-configuration-recorders || aws configservice put-configuration-recorder --configuration-recorder name=default,roleARN=arn:aws:iam::${{ github.event.repository.owner.id }}:role/aws-service-role/config.amazonaws.com/AWSServiceRoleForConfig --recording-group allSupported=true,includeGlobalResources=true
-      
-      - name: Create CloudWatch Dashboard for Security Monitoring
-        run: |
-          # Create a CloudWatch dashboard for monitoring security metrics
-          aws cloudwatch put-dashboard --dashboard-name SecurityMonitoring --dashboard-body file://cloudwatch/security-dashboard.json
-      
-      - name: Notify Security Team
-        if: always()
-        uses: 8398a7/action-slack@v3
-        with:
-          status: ${{ job.status }}
-          fields: repo,message,commit,author,action,eventName,ref,workflow
-        env:
-          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
 
   
         
