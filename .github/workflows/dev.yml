@@ -53,7 +53,7 @@ jobs:
     secrets: inherit
     if: always() && (needs.build.result == 'success')
 
-  # OWASP Dependency Check
+  # OWASP Dependency Check (SCA)
   owaspdepcheck:
     name: OWASP Dependency Check
     uses: ./.github/workflows/owaspdepcheck.yml
